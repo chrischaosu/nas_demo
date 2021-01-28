@@ -1,0 +1,279 @@
+---
+title: "第三层议程设置"
+author: "Chris Chao Su, Lei Guo, Hsuan-Ting Chen"
+date: "1/25/2021"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 第三层议程设置（网络议程设置模型）的数据建立和假设检验。
+
+此处的实例操作以Chen, Guo & Su (2020)发表于 Journal of Communication的文章为例，来说明如何基于媒体内容分析和调查问卷数据来检验第三层议程设置，也就是网络议程设置模型的假设。
+
+分析的第一步需要创建代表媒体与公众想法的属性网络。此处为了展示如何构建网络，我们随机生成了五组模拟数据，包括三种政治倾向的媒体数据和代表两种政治倾向的公众问卷数据，五组样本数据都可以在Github上下载：
+
+* 建制派新闻媒体数据 (N = 350): media_proestablishment.csv
+* 泛民派新闻媒体数据 (N = 350): media_democratic.csv
+* 中立新闻媒体数据 (N = 350): media_neutral.csv
+
+* 泛民派支持者调查问卷数据 (N = 500): survey_democratic.csv
+* 建制派支持者调查问卷数据 (N = 500): survey_proestablishment.csv
+
+
+在此过程中，我们使用了多个R包，用于数据处理、建立矩阵、计算回归程序的统计显著性等。
+
+```{r load-packages, include=FALSE, message=FALSE}
+library(readr) #用于读取csv数据
+library(dplyr) #用于数据处理
+library(tidyverse) #用于数据处理
+library(magrittr) #用于运行管道运算符%>%
+library(gdata) # 用于矩阵的数据处理
+library(dils) # 将边列表转换为矩阵
+library(asnipe) #用于二次指派程序分析
+```
+
+### 步骤一：获得媒体数据和公众想法数据
+
+接下来我们要看看研究中主要使用的两种不同类型的数据。
+
+第一种数据是媒体数据，涵盖了香港的主要新闻媒体机构，根据媒体的政治倾向，可以大致划分为三类：建制派新闻媒体、泛民派新闻媒体、以及中立的新闻媒体。在获取了每一篇新闻报道之后，我们对每一条报道进行编码，如果该条新闻所报道的内容有涉及到某一个具体的属性，那么我们就以数字“1”记录，没有涉及到的属性则不做记录。
+
+对每一篇新闻报道，我们都有十六个变量：
+* attribute1 ~ attribute16：十六个属性的编码结果（1 = “涉及该属性”， 0 = “不涉及该属性”）。
+
+```{r  message=FALSE}
+# 读取媒体数据
+media_democ <- read_csv("media_democratic.csv") # 泛民派新闻媒体
+media_neutr <- read_csv("media_neutral.csv") # 中立新闻媒体
+media_proes <- read_csv("media_proestablishment.csv") # 建制派新闻媒体
+
+head(media_democ) #展示部分数据
+```
+
+第二类数据是代表公众想法的属性网络矩阵。我们这里展示的是通过问卷调查数据建立公众属性网络矩阵。
+
+这一数据包含以下信息：
+* respid： 每一位有效受访者的ID；
+* attribute1 ~ attribute5: 受访者关注的五个属性，每一个属性在数据中由1～16的代号标记（共16个属性）；
+* association1 ~ association10: 受访者认为每对属性之间的关系强度（“0” = 没有关系，“10” = 极其相关）。
+
+同样地，我们可以将数据读入到R中：
+
+```{r  message=FALSE}
+# 读取公众问卷数据
+survey_proes <- read_csv("survey_proestablishment.csv") # 建制派支持者
+survey_democ <- read_csv("survey_democratic.csv") # 泛民派支持者
+
+
+head(survey_proes) #展示部分数据
+```
+
+
+### 步骤二：创建媒体属性网络矩阵
+
+接下来我们就可以针对每一种政治类型的媒体数据来创建其属性网络矩阵。
+
+首先是泛民派新闻媒体，选取其16个属性的编码内容，转换成矩阵格式，计算转置矩阵，再通过转置矩阵与原矩阵相乘的方式得到16*16的属性网络矩阵。
+
+```{r}
+media_democ <- media_democ %>% select(attribute1:attribute16) #选取属性的编码内容
+media_democ <- media_democ %>% as.matrix # 转换为矩阵格式
+media_democ_t <- t(media_democ) # 计算转置矩阵
+media_democ_matrix <- media_democ_t %*% media_democ # 计算属性网络矩阵
+
+```
+
+然后为了方便运行之后的二次指派程序，我们对矩阵的数据类型进行修正，并且将所以对角线数据（即属性与自己之间的关系）全部设置为0。
+
+```{r}
+media_democ_matrix <- media_democ_matrix %>% as.matrix
+diag(media_democ_matrix) <- 0
+```
+
+最后，可以看到属性网络矩阵的最后数据形式和内容：
+
+```{r}
+media_democ_matrix # 展示数据
+```
+
+
+接着我们可以以同样的方式计算中立媒体以及建制派新闻媒体16*16的属性网络矩阵。
+
+```{r}
+# 中立媒体的属性网络矩阵
+
+media_neutr <- media_neutr %>% select(attribute1:attribute16)
+
+media_neutr <- media_neutr %>% as.matrix
+media_neutr_t <- t(media_neutr)
+media_neutr_matrix <- media_neutr_t %*% media_neutr
+
+media_neutr_matrix <- media_neutr_matrix %>% as.matrix
+diag(media_neutr_matrix) <- 0
+
+media_neutr_matrix
+
+```
+
+```{r}
+# 建制派媒体的属性网络矩阵
+
+media_proes <- media_proes %>% select(attribute1:attribute16)
+
+media_proes <- media_proes %>% as.matrix
+media_proes_t <- t(media_proes)
+media_proes_matrix <- media_proes_t %*% media_proes
+
+media_proes_matrix <- media_proes_matrix %>% as.matrix
+diag(media_proes_matrix) <- 0
+
+media_proes_matrix
+
+```
+
+### 步骤三：公众属性网络矩阵
+
+公众属性网络矩阵的建立则与媒体矩阵稍有不同，主要差别在于，我们需要考虑到每个受访者所回答的属性关联强度。因此，我们需要首先对所有可能的出现的属性建立对应关系（五个属性最大可能出现10对关系），然后与问卷中与每一对属性的关联强度进行一一映射，最后还要将每一对属性之间的总关系强度进行整合。
+
+以泛民派支持者的属性网络为例。我们首先需要选取五个属性变量（attribute1 ～ attribute5）以及十个属性间关系变量（association1 ～ association10）。
+
+```{r}
+# 选取属性变量
+survey_democ_attributes <- survey_democ %>% select(respid, attribute1:attribute5)
+
+head(survey_democ_attributes)
+```
+
+```{r}
+# 选取属性关系变量
+survey_democ_weight <- survey_democ %>% select(respid, association1:association10)
+
+head(survey_democ_weight)
+```
+
+然后对数据中的每一对属性建立一种关系结构，即边关系列表（edgelist）。对每一个受访人而言，五种属性一共有10种关系。因此500个受访人则一共有500*10 = 5,000条关系。
+
+```{r}
+# 建立边列表
+survey_democ_edgelist = data.frame()
+for (i in 1: length(dimnames(survey_democ_attributes)[[1]])) {
+  v = unlist(survey_democ_attributes[i, 2:6]) 
+  v = t(combn(v,2))
+  survey_democ_edgelist = rbind(survey_democ_edgelist, v)
+} 
+survey_democ_edgelist <- t(apply(survey_democ_edgelist,1,sort)) %>% as.data.frame() # 在这里，属性之间的关系是无方向的
+
+head(survey_democ_edgelist)
+```
+
+如上表所示的边关系数据，V1和V2分别是两种属性，由于公众提供的具体话题有可能属于同一种属性，因此V1和V2也可能属于同一种属性。
+
+接下来，我们将属性和属性之间的强度加到边关系数据中：
+```{r}
+# 增加属性之间的关系强度值（weight）
+
+# 提取属性之间的强度值
+survey_democ_edgelist_w = c()
+for (i in 1: length(dimnames(survey_democ_weight)[[1]])) {
+  w = unlist(survey_democ_weight[i, 2:11])
+  w = t(combn(w,1))
+  survey_democ_edgelist_w = append(survey_democ_edgelist_w,w)
+}
+survey_democ_edgelist$weight <- survey_democ_edgelist_w # 将属性之间的强度值赋予边列表
+survey_democ_edgelist <- aggregate(weight~V1+V2, data = survey_democ_edgelist, FUN = sum) # 整合同属性对之间的关系强度，只保留每一对独特的边关系 
+
+head(survey_democ_edgelist)
+```
+
+将边关系列表转换为矩阵形式：
+
+```{r}
+survey_democ_matrix <- AdjacencyFromEdgelist(survey_democ_edgelist, check.full = TRUE) %>% as.data.frame() # 边关系列表转换为矩阵
+survey_democ_matrix <- survey_democ_matrix[1:16, 1:16] #去除最后一列nodelist
+
+survey_democ_matrix # 展示数据
+```
+
+对公众属性矩阵进行重命名和调整：
+```{r}
+colnames(survey_democ_matrix) <- paste0("attribute",seq(1:16),"")
+rownames(survey_democ_matrix) <- paste0("attribute",seq(1:16),"")
+
+survey_democ_matrix <- survey_democ_matrix %>% as.matrix
+diag(survey_democ_matrix) <- 0 # 去除属性自身之间的强度值
+lowerTriangle(survey_democ_matrix) <- upperTriangle(survey_democ_matrix, byrow = TRUE) #生成整体矩阵
+
+survey_democ_matrix # 展示数据
+```
+
+以相同的方式，我们可以建立建制派支持者的认知属性网络：
+
+```{r}
+# 选取属性变量
+survey_proes_attributes <- survey_proes %>% select(respid, attribute1:attribute5)
+
+# 选取属性关系变量
+survey_proes_weight <- survey_proes %>% select(respid, association1:association10)
+
+# 建立边列表
+survey_proes_edgelist = data.frame()
+for (i in 1: length(dimnames(survey_proes_attributes)[[1]])) {
+  v = unlist(survey_proes_attributes[i, 2:6]) 
+  v = t(combn(v,2))
+  survey_proes_edgelist = rbind(survey_proes_edgelist, v)
+} 
+survey_proes_edgelist <- t(apply(survey_proes_edgelist,1,sort)) %>% as.data.frame() 
+
+# 加属性之间的关系强度值（weight）
+survey_proes_edgelist_w = c()
+for (i in 1: length(dimnames(survey_proes_weight)[[1]])) {
+  w = unlist(survey_proes_weight[i, 2:11])
+  w = t(combn(w,1))
+  survey_proes_edgelist_w = append(survey_proes_edgelist_w,w)
+}
+survey_proes_edgelist$weight <- survey_proes_edgelist_w
+
+survey_proes_edgelist <- aggregate(weight~V1+V2, data = survey_proes_edgelist, FUN = sum)
+
+# 建立认知属性矩阵
+survey_proes_matrix <- AdjacencyFromEdgelist(survey_proes_edgelist, check.full = TRUE) %>% as.data.frame()
+survey_proes_matrix <- survey_proes_matrix[1:16, 1:16]
+
+# 对认知属性矩阵进行重命名和调整
+colnames(survey_proes_matrix) <- paste0("attribute",seq(1:16),"")
+rownames(survey_proes_matrix) <- paste0("attribute",seq(1:16),"")
+
+survey_proes_matrix <- survey_proes_matrix %>% as.matrix
+diag(survey_proes_matrix) <- 0 # 去除属性自身之间的强度值
+lowerTriangle(survey_proes_matrix) <- upperTriangle(survey_proes_matrix, byrow = TRUE) #生成整体矩阵
+
+survey_proes_matrix
+
+```
+
+### 步骤四：研究假设验证
+
+在此，我们使用二次指派回归程序MRQAP对新闻媒体的属性网络和公众的认知属性网络之间的关联性进行分析，并检验以下两个研究假设：
+* 假设一：香港建制派新闻媒体的属性网络和建制派支持者的认知属性网络存在显著关联。
+* 假设二：香港泛民派新闻媒体的属性网络和泛民派支持者的认知属性网络存在显著关联。
+
+在这里我们使用的R包是“asnipe”，研究者也可以使用sna包中的netlm函数
+
+验证假设一：
+```{r}
+proesfit <- mrqap.dsp(survey_proes_matrix ~ media_proes_matrix + media_democ_matrix + media_neutr_matrix, intercept = TRUE, directed = "undirected", diagonal = FALSE, test.statistic = "t-value", tol = 1e-07, randomisations = 1000)
+
+```
+
+验证假设二：
+```{r}
+democfit <- mrqap.dsp(survey_democ_matrix ~ media_proes_matrix + media_democ_matrix + media_neutr_matrix, intercept = TRUE, directed = "undirected",  diagonal = FALSE, test.statistic = "t-value", tol = 1e-07, randomisations = 1000)
+
+```
+
+
